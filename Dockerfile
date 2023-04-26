@@ -4,4 +4,4 @@ RUN pip install -r /tmp/requirements.txt
 COPY . /app
 WORKDIR /app
 EXPOSE 5000
-CMD ["python", "io_service.py"]
+CMD ["python", "bl_server.py"]
