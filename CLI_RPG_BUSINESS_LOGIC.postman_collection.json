@@ -195,7 +195,7 @@
 	"variable": [
 		{
 			"key": "BASE_URL",
-			"value": "localhost:5002",
+			"value": "localhost:8000/api",
 			"type": "default"
 		},
 		{
