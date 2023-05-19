@@ -25,7 +25,7 @@ CORS(app)
 
 JWT_SECRET = "secret"
 
-IOSERVICE_BASE_URL = "http://io_service:5000"
+IOSERVICE_URL = "http://io_service:5000/session"
 
 def token_required(f):
     @wraps(f)
@@ -146,7 +146,7 @@ dungeon_side = {
 @token_required
 def act(uid, session_id, action_id):
 
-    result = requests.get(IOSERVICE_BASE_URL + "/get_session/" + session_id)
+    result = requests.get(IOSERVICE_URL + session_id)
 
     if (not result.ok):
         return Response(status=result.status_code)
@@ -178,7 +178,7 @@ def savedgames(user_id):
 @app.route("/session_data/<session_id>", methods=["GET"])
 @token_required
 def get_everything(uid, session_id):
-    result = requests.get(IOSERVICE_BASE_URL + "/get_session/" + session_id)
+    result = requests.get(IOSERVICE_URL+ session_id)
 
     if (not result.ok):
         return Response(status=result.status_code)
@@ -218,7 +218,7 @@ def generate_map(level, seed=None):
 
 
 
-def render(map):
+def render(game_map):
     from math import sqrt
     tile_to_char = {
         EMPTY: "_",
@@ -230,11 +230,11 @@ def render(map):
 
     ml = []
 
-    n = int(sqrt(len(m)))
+    n = int(sqrt(len(game_map)))
 
-    while m:
-        ml.append(m[:n])
-        m = m[n:]
+    while game_map:
+        ml.append(game_map[:n])
+        m = game_map[n:]
 
     ms = ["┌" + (n * 2 + 1) * "─" + "┐", *["│ " + " ".join([tile_to_char[t] for t in r]) + " │" for r in ml],"└" + (n * 2 + 1) * "─" + "┘"]
 
