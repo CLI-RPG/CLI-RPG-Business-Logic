@@ -132,14 +132,11 @@ class GameState:
             "money" : self.money,
             "map" : self.game_map,
             "scenarioID" : self.scenario_id,
-            "currentEnemyHP" : self.current_enemy_hp
+            "currentEnemyHP" : self.current_enemy_hp,
+            "rendered_map" : render(self.game_map)
         })
 
-dungeon_side = {
-    1 : 5,
-    2 : 7,
-    3 : 9
-}
+
 
 
 @app.route("/act/<session_id>/<int:action_id>", methods=["POST"])
@@ -190,6 +187,19 @@ def get_everything(uid, session_id):
 
     return Response(status=result.status_code, response=game.toJSON())
 
+dungeon_side = {
+    1 : 5,
+    2 : 7,
+    3 : 9
+}
+
+dungeon_enemies = {
+    1 : 4,
+    2 : 7,
+    3 : 10
+}
+
+
 def generate_map(level, seed=None):
     side = dungeon_side[level]
     import random
@@ -215,15 +225,75 @@ def generate_map(level, seed=None):
 
     shop_x, shop_y = shop = random_pos()
     game_map[shop_x][shop_y] = SHOP
+    occupied.add(shop)
+
+    objectives = {shop}
+
+    for _ in range(dungeon_enemies[level]):
+        enemy_x, enemy_y = enemy = random_pos()
+        game_map[enemy_x][enemy_y] = ENEMY
+        occupied.add(enemy)
+        objectives.add(enemy)
+
+    def wall_blocks(wall_pos):
+
+
+        q = [player_start]
+        vis = {player_start}
+
+        def neigh(pos):
+            x, y = pos
+            potentials = set()
+            if x >= 1:
+                potentials.add((x-1,y))
+            if x < side - 1:
+                potentials.add((x+1,y))
+            if y >= 1:
+                potentials.add((x,y-1))
+            if y < side - 1:
+                potentials.add((x,y+1))
+            return {t for t in potentials if t != wall_pos and game_map[t[0]][t[1]] != WALL and t not in vis}
+
+        while q and objectives.difference(vis):
+            np = q.pop()
+            nei = neigh(np)
+            q.extend(nei)
+            vis.update(nei)
+
+        return objectives.difference(vis)
+
+
+    fails = 0
+    fail_thresh = 5
+    success = 0
+    success_thresh = side * side / 2
+    while fails < fail_thresh and success < success_thresh:
+        wall_x, wall_y = wall = random_pos()
+        if wall_blocks(wall):
+            fails += 1
+        else:
+            success += 1
+            occupied.add(wall)
+            game_map[wall_x][wall_y] = WALL
+
+    return [x for l in game_map for x in l]
 
 
 
-def render(game_map):
+
+def render(game_map, style=2):
     from math import sqrt
-    tile_to_char = {
-        EMPTY: "_",
+    tile_to_char_1 = {
+        EMPTY: " ",
         PLAYER: "P",
         WALL: "#",
+        SHOP: "$",
+        ENEMY: "E"
+    }
+    tile_to_char_2 = {
+        EMPTY: " ",
+        PLAYER: "P",
+        WALL: "█",
         SHOP: "$",
         ENEMY: "E"
     }
@@ -234,11 +304,17 @@ def render(game_map):
 
     while game_map:
         ml.append(game_map[:n])
-        m = game_map[n:]
+        game_map = game_map[n:]
 
-    ms = ["┌" + (n * 2 + 1) * "─" + "┐", *["│ " + " ".join([tile_to_char[t] for t in r]) + " │" for r in ml],"└" + (n * 2 + 1) * "─" + "┘"]
+    if style == 1:
+        ms = ["┌" + (n * 2 + 1) * "─" + "┐", *["│ " + " ".join([tile_to_char_1[t] for t in r]) + " │" for r in ml],"└" + (n * 2 + 1) * "─" + "┘"]
+        s = "\n".join(ms)
+    else:
+        ms = ["█" + (n * 2 + 1) * "█" + "█", *["█ " + " ".join([tile_to_char_2[t] for t in r]) + " █" for r in ml],"█" + (n * 2 + 1) * "█" + "█"]
 
-    return "\n".join(ms)
+        s = "\n".join(ms).replace("█ █", "███").replace("█ █", "███")
+
+    return s
 
 
 
