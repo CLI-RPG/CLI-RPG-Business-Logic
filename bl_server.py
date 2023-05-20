@@ -90,9 +90,9 @@ class GameState:
             2 : "down",
             3 : "left",
             4 : "right",
-            5 : f"upgrade atk <{ATK_UPGRADE_COST} gold>",
-            6 : f"upgrade shield <{SHIELD_UPGRADE_COST} gold>",
-            7:  f"heal <{HEAL_COST} gold>"
+            5 : f"upgrade atk ${ATK_UPGRADE_COST}",
+            6 : f"upgrade shield ${SHIELD_UPGRADE_COST}",
+            7:  f"heal ${HEAL_COST}"
         }
     }
 
@@ -161,7 +161,8 @@ class GameState:
             "currentEnemyHP" : self.current_enemy_hp,
             "rendered_map" : render(self.game_map),
             "name" : self.name,
-            "blockTurnsRemaining" : self.blockTurns
+            "blockTurnsRemaining" : self.blockTurns,
+            "actions" : self.action_text
         }
 
 
@@ -232,7 +233,7 @@ def act(uid, session_id, action_id):
             if game.money < HEAL_COST:
                 return Response(status=200, response=json.dumps("You cannot afford that"))
             if game.health == 100:
-                return Response(status=200, response=json.dumps("You're already at full health!'"))
+                return Response(status=200, response=json.dumps("You're already at full health!"))
             game.health = min(game.health + 5, 100)
             game.money -= HEAL_COST
             requests.put(url=IOSERVICE_URL + "session/" + session_id, json=game.toDict())
