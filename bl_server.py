@@ -25,7 +25,7 @@ CORS(app)
 
 JWT_SECRET = "secret"
 
-IOSERVICE_URL = "http://io_service:5000/session"
+IOSERVICE_URL = "http://io_service:5000/"
 
 def token_required(f):
     @wraps(f)
@@ -143,7 +143,7 @@ class GameState:
 @token_required
 def act(uid, session_id, action_id):
 
-    result = requests.get(IOSERVICE_URL + session_id)
+    result = requests.get(IOSERVICE_URL + "session/" + session_id)
 
     if (not result.ok):
         return Response(status=result.status_code)
@@ -151,7 +151,7 @@ def act(uid, session_id, action_id):
     return Response(status=http.HTTPStatus.NOT_IMPLEMENTED)
 
 
-@app.route("/new_game", methods=["POST"]) # TODO decide if POSt is the best method
+@app.route("/new_game", methods=["POST"])
 @token_required
 def newgame(uid):
     req = request.json
@@ -160,22 +160,42 @@ def newgame(uid):
     name = req["name"]
     level = req["level"]
     scenario = req["scenario"]
-    return Response(status=http.HTTPStatus.NOT_IMPLEMENTED, response=json.dumps(f"id of the new game named {name} of level {level} on scenario {scenario}"))
+
+    STARTING_HEALTH = 100
+    STARTING_ATTACK = 15
+    STARTING_SHIELD = 15
+    STARTING_MONEY = 0
+
+    result = requests.post(IOSERVICE_URL + "session", json={
+        "name": name,
+        "userID": uid,
+        "health" : STARTING_HEALTH,
+        "attackPwr" : STARTING_ATTACK,
+        "shield" : STARTING_SHIELD,
+        "level" : level,
+        "money" : STARTING_MONEY,
+        "map" : generate_map(level),
+        "scenarioID" : scenario,
+        "currentEnemyHP" : 0
+    })
+
+    if not result.ok:
+        return Response(status=result.status_code)
+
+    return Response(status=http.HTTPStatus.CREATED, response=result.content)
 
 @app.route("/saved_games", methods=["GET"])
 @token_required
-def savedgames(user_id):
-    return Response(status=http.HTTPStatus.NOT_IMPLEMENTED, response=json.dumps(["name1", "name2", "etc..."]))
+def savedgames(uid):
+    result = requests.get(IOSERVICE_URL + uid + "/sessions")
 
-# @app.route("/load_game/<user_id>/<game_name>", methods=["GET"]) # TODO decide if get is the best method
-# def loadgame(user_id, game_name):
-#     return Response(status=http.HTTPStatus.NOT_IMPLEMENTED, response=json.dumps("id of the session"))
+    return Response(status=result.status_code, response=result.content)
 
 
 @app.route("/session_data/<session_id>", methods=["GET"])
 @token_required
 def get_everything(uid, session_id):
-    result = requests.get(IOSERVICE_URL+ session_id)
+    result = requests.get(IOSERVICE_URL + "session/" + session_id)
 
     if (not result.ok):
         return Response(status=result.status_code)
