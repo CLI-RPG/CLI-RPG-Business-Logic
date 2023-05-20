@@ -7,6 +7,7 @@ import http
 import json
 import jwt
 from functools import wraps
+from math import sqrt
 
 EMPTY = 0
 WALL = 1
@@ -16,9 +17,25 @@ PLAYER = 4
 PLAYER_ON_SHOP = 5
 PLAYER_ON_ENEMY = 6
 
+PLAYER_TO_VACANT = {
+    PLAYER : EMPTY,
+    PLAYER_ON_SHOP : SHOP,
+    PLAYER_ON_ENEMY : ENEMY
+}
+
+VACANT_TO_PLAYER = {
+    EMPTY : PLAYER,
+    SHOP : PLAYER_ON_SHOP,
+    ENEMY : PLAYER_ON_ENEMY
+}
+
 STATE_IDLE = 0
 STATE_SHOP = 1
 STATE_FIGHT = 2
+
+ATK_UPGRADE_COST = 5
+SHIELD_UPGRADE_COST = 3
+HEAL_COST = 2
 
 app = Flask(__name__)
 CORS(app)
@@ -73,9 +90,9 @@ class GameState:
             2 : "down",
             3 : "left",
             4 : "right",
-            5 : "upgrade atk <x gold>",
-            6 : "upgrade shield <y gold>",
-            7:  "heal <z gold>"
+            5 : f"upgrade atk <{ATK_UPGRADE_COST} gold>",
+            6 : f"upgrade shield <{SHIELD_UPGRADE_COST} gold>",
+            7:  f"heal <{HEAL_COST} gold>"
         }
     }
 
@@ -88,7 +105,9 @@ class GameState:
                  game_map,
                  money,
                  scenario_id,
-                 current_enemy_hp) -> None:
+                 current_enemy_hp,
+                 name,
+                 blockTurns) -> None:
         self.user_id = user_id
         self.health = health
         self.attack = attack
@@ -105,6 +124,8 @@ class GameState:
         elif PLAYER_ON_SHOP in game_map:
             self.state = STATE_SHOP
         self.action_text = GameState.STATE_TO_ACTION_TEXT[self.state]
+        self.name = name
+        self.blockTurns = blockTurns
 
 
 
@@ -119,11 +140,16 @@ class GameState:
             data.get('map'),
             data.get('money'),
             data.get('scenarioID'),
-            data.get('currentEnemyHP')
+            data.get('currentEnemyHP'),
+            data.get('name'),
+            data.get("blockTurnsRemaining")
         )
 
     def toJSON(self):
-        return json.dumps({
+        return json.dumps(self.toDict())
+
+    def toDict(self):
+        return {
             "userID": self.user_id,
             "health" : self.health,
             "attackPwr" : self.attack,
@@ -133,8 +159,10 @@ class GameState:
             "map" : self.game_map,
             "scenarioID" : self.scenario_id,
             "currentEnemyHP" : self.current_enemy_hp,
-            "rendered_map" : render(self.game_map)
-        })
+            "rendered_map" : render(self.game_map),
+            "name" : self.name,
+            "blockTurnsRemaining" : self.blockTurns
+        }
 
 
 
@@ -148,7 +176,133 @@ def act(uid, session_id, action_id):
     if (not result.ok):
         return Response(status=result.status_code)
 
-    return Response(status=http.HTTPStatus.NOT_IMPLEMENTED)
+    if result.json()["userID"] != uid:
+        return Response(status=http.HTTPStatus.FORBIDDEN)
+
+    game = GameState.fromJSON(result.json())
+
+    if action_id <= 4:
+        side = int(sqrt(len(game.game_map)))
+        player_pos = game.game_map.index(PLAYER + game.state)
+        player_x = player_pos // side
+        player_y = player_pos % side
+
+        move_delta = {
+            1 : (-1,0),
+            2 : (1,0),
+            3 : (0,-1),
+            4 : (0,1),
+        }[action_id]
+
+        new_x = player_x + move_delta[0]
+        new_y = player_y + move_delta[1]
+        new_pos = new_x * side + new_y
+
+        if 0 <= new_x < side and 0 <= new_y < side and game.game_map[new_pos] != WALL:
+            print(render(game.game_map), "\n\n")
+            if game.game_map[new_pos] == ENEMY:
+                game.current_enemy_hp = 50
+            game.game_map[player_pos] = PLAYER_TO_VACANT[game.game_map[player_pos]]
+            game.game_map[new_pos] = VACANT_TO_PLAYER[game.game_map[new_pos]]
+            print(render(game.game_map), flush=True)
+
+            requests.put(url=IOSERVICE_URL + "session/" + session_id, json=game.toDict())
+
+
+            return Response(status=200, response=json.dumps("You walked"))
+        else:
+            return Response(status=200, response=json.dumps("You cannot walk there"))
+
+    if game.state == STATE_SHOP:
+        if action_id == 5:
+            if game.money < ATK_UPGRADE_COST:
+                return Response(status=200, response=json.dumps("You cannot afford that"))
+            game.attack += 5
+            game.money -= ATK_UPGRADE_COST
+            requests.put(url=IOSERVICE_URL + "session/" + session_id, json=game.toDict())
+            return Response(status=200, response=json.dumps("Your sword is sharper now"))
+        if action_id == 6:
+            if game.money < SHIELD_UPGRADE_COST:
+                return Response(status=200, response=json.dumps("You cannot afford that"))
+            game.shield += 4
+            game.money -= SHIELD_UPGRADE_COST
+            requests.put(url=IOSERVICE_URL + "session/" + session_id, json=game.toDict())
+            return Response(status=200, response=json.dumps("Your shield is sturdier now"))
+        if action_id == 7:
+            if game.money < HEAL_COST:
+                return Response(status=200, response=json.dumps("You cannot afford that"))
+            if game.health == 100:
+                return Response(status=200, response=json.dumps("You're already at full health!'"))
+            game.health = min(game.health + 5, 100)
+            game.money -= HEAL_COST
+            requests.put(url=IOSERVICE_URL + "session/" + session_id, json=game.toDict())
+            return Response(status=200, response=json.dumps("You feel refreshed"))
+
+    if game.state == STATE_FIGHT:
+
+        ENEMY_ATTACK = {
+            1 : 15,
+            2 : 25,
+            3 : 35
+        }[game.level]
+
+
+        if action_id == 5:
+            # attack
+            game.current_enemy_hp -= game.attack
+
+            if game.current_enemy_hp > 0:
+                # enemy attack
+
+                blk_amount = game.shield
+
+                if game.blockTurns > 0:
+                    blk_amount += blk_amount // 2
+                    game.blockTurns -= 1
+
+                enemy_dmg = ENEMY_ATTACK - blk_amount
+
+                if enemy_dmg > 0:
+                    game.health -= enemy_dmg
+                    if game.health <= 0:
+                        # DEATH
+                        # return and do something
+                        return Response(status=http.HTTPStatus.GONE, response="YOU DIED")
+                    msg = f"the enemy attacked you for {enemy_dmg} damage"
+                else:
+                    msg = "you blocked the enemy's attack"
+            else:
+                # gain gold
+                game.money += 15
+                # remove enemy from map
+                current_pos = game.game_map.index(PLAYER_ON_ENEMY)
+                game.game_map[current_pos] = PLAYER
+                msg = "the enemy died, giving you 15 gold"
+            requests.put(url=IOSERVICE_URL + "session/" + session_id, json=game.toDict())
+            return Response(status=200, response=json.dumps(msg))
+
+        if action_id == 6:
+            game.blockTurns = 3
+
+            blk_amount = game.shield
+
+            if game.blockTurns > 0:
+                blk_amount += blk_amount // 2
+
+            enemy_dmg = ENEMY_ATTACK - blk_amount
+
+            if enemy_dmg > 0:
+                game.health -= enemy_dmg
+                if game.health <= 0:
+                    # DEATH
+                    # return and do something
+                    return Response(status=http.HTTPStatus.GONE, response="YOU DIED")
+                msg = f"the enemy attacked you for {enemy_dmg} damage"
+            else:
+                msg = "you blocked the enemy's attack"
+            return Response(status=200, response=json.dumps(msg))
+
+    return Response(status=http.HTTPStatus.NOT_IMPLEMENTED, response="you have no idea how to do that")
 
 
 @app.route("/new_game", methods=["POST"])
@@ -176,7 +330,8 @@ def newgame(uid):
         "money" : STARTING_MONEY,
         "map" : generate_map(level),
         "scenarioID" : scenario,
-        "currentEnemyHP" : 0
+        "currentEnemyHP" : 0,
+        "blockTurnsRemaining" : 0
     })
 
     if not result.ok:
@@ -302,20 +457,23 @@ def generate_map(level, seed=None):
 
 
 def render(game_map, style=2):
-    from math import sqrt
     tile_to_char_1 = {
         EMPTY: " ",
         PLAYER: "P",
         WALL: "#",
         SHOP: "$",
-        ENEMY: "E"
+        ENEMY: "E",
+        PLAYER_ON_ENEMY: 'X',
+        PLAYER_ON_SHOP: '€'
     }
     tile_to_char_2 = {
         EMPTY: " ",
         PLAYER: "P",
         WALL: "█",
         SHOP: "$",
-        ENEMY: "E"
+        ENEMY: "E",
+        PLAYER_ON_ENEMY: 'X',
+        PLAYER_ON_SHOP: '€'
     }
 
     ml = []
