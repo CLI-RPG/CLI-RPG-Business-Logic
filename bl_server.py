@@ -268,6 +268,7 @@ def act(uid, session_id, action_id):
                     if game.health <= 0:
                         # DEATH
                         # return and do something
+                        requests.delete(url=IOSERVICE_URL + "session/" + session_id)
                         return Response(status=http.HTTPStatus.GONE, response="YOU DIED")
                     msg = f"the enemy attacked you for {enemy_dmg} damage"
                 else:
@@ -296,11 +297,12 @@ def act(uid, session_id, action_id):
                 game.health -= enemy_dmg
                 if game.health <= 0:
                     # DEATH
-                    # return and do something
+                    requests.delete(url=IOSERVICE_URL + "session/" + session_id)
                     return Response(status=http.HTTPStatus.GONE, response="YOU DIED")
                 msg = f"the enemy attacked you for {enemy_dmg} damage"
             else:
                 msg = "you blocked the enemy's attack"
+            requests.put(url=IOSERVICE_URL + "session/" + session_id, json=game.toDict())
             return Response(status=200, response=json.dumps(msg))
 
     return Response(status=http.HTTPStatus.NOT_IMPLEMENTED, response="you have no idea how to do that")
